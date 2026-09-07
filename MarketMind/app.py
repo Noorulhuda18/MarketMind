@@ -453,6 +453,10 @@ if saved_key and not st.session_state.get("runtime_api_key"):
 if saved_key and not st.session_state.get("runtime_model"):
     st.session_state.runtime_model = DEFAULT_MODEL
 
+# Page navigation state
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "research"  # "research" or "results"
+
 
 # ============================================================
 # PAGE 1 — OPENAI CONNECTION
@@ -579,7 +583,7 @@ if not st.session_state.connected:
 
 
 # ============================================================
-# PAGE 2 — RESEARCH
+# PAGE 2 & 3 — RESEARCH & RESULTS
 # The connection page above is now completely hidden.
 # ============================================================
 runtime_key = st.session_state.get(
@@ -600,9 +604,12 @@ client = OpenAI(
 )
 
 # ------------------------------------------------------------
-# SIDEBAR
+# SIDEBAR — Navigation & Status
 # ------------------------------------------------------------
 with st.sidebar:
+    st.markdown("### 📊 MarketMind")
+    st.divider()
+    
     st.success("✓ OpenAI Connected")
 
     current_label = next(
@@ -625,8 +632,43 @@ with st.sidebar:
         disabled=True,
         help="Disconnect and reconnect to switch models.",
     )
-
-    if st.button("Disconnect"):
+    
+    st.divider()
+    st.markdown("### Navigation")
+    
+    # Page navigation
+    if st.button("🔍 New Research", use_container_width=True):
+        st.session_state.current_page = "research"
+        st.session_state.pop("last_result", None)
+        st.rerun()
+    
+    # Show results navigation only if results exist
+    result = st.session_state.get("last_result")
+    if result:
+        if st.button("📋 View Results", use_container_width=True):
+            st.session_state.current_page = "results"
+            st.rerun()
+    
+    st.divider()
+    
+    # QC Status in sidebar
+    if result:
+        st.markdown("### Quality Control Status")
+        qc_items = result.get("qc", [])
+        real_issues = [x for x in qc_items if x.get("type") != "none"]
+        
+        if not real_issues:
+            st.success("✓ No issues detected")
+        else:
+            st.warning(f"⚠ {len(real_issues)} issue(s) found")
+            for item in real_issues:
+                issue_type = item.get("type", "review")
+                st.caption(f"• {issue_type}")
+        
+        st.divider()
+    
+    st.divider()
+    if st.button("🚪 Disconnect", use_container_width=True):
         st.session_state.pop(
             "runtime_api_key",
             None
@@ -640,223 +682,237 @@ with st.sidebar:
             "last_result",
             None
         )
+        st.session_state.current_page = "research"
         st.rerun()
 
 
-# ------------------------------------------------------------
-# RESEARCH HOME
-# ------------------------------------------------------------
-st.title("📊 MarketMind AI")
-st.caption(
-    "Autonomous Business Research Agent"
-)
+# ============================================================
+# PAGE 2 — RESEARCH HOME
+# ============================================================
+if st.session_state.current_page == "research":
+    st.title("📊 MarketMind AI")
+    st.caption("Autonomous Business Research Agent")
+    
+    st.markdown("---")
 
-st.markdown("### What do you want to research?")
-
-question = st.text_area(
-    "Research question",
-    placeholder=(
-        "Example: Compare AI-powered customer "
-        "support software for a mid-market company, "
-        "including pricing, features, positioning, "
-        "opportunities and risks."
-    ),
-    height=140,
-)
-
-if st.button(
-    "🚀 Start Research",
-    type="primary",
-    use_container_width=True,
-):
-    if not question.strip():
-        st.warning(
-            "Please enter a research question."
-        )
-    else:
-        try:
-            with st.spinner(
-                "MarketMind is researching..."
-            ):
-                result = run_marketmind(
-                    question.strip(),
-                    client,
-                    runtime_model,
-                )
-
-            st.session_state.last_result = result
-
-            st.success(
-                "Research completed. "
-                "Human approval is still required."
-            )
-
-        except Exception as e:
-            st.error(
-                f"Research failed safely: "
-                f"{type(e).__name__}: {e}"
-            )
-
-
-# ------------------------------------------------------------
-# RESULTS
-# ------------------------------------------------------------
-result = st.session_state.get(
-    "last_result"
-)
-
-if result:
-    st.divider()
-
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        [
-            "Report",
-            "Evidence",
-            "Plan",
-            "QC",
-            "Approval",
-        ]
-    )
-
-    with tab1:
-        st.subheader("Research Report")
-        st.markdown(result["report"])
-
-    with tab2:
-        st.subheader("Evidence")
-        st.caption(
-            "Sources and claims used by MarketMind. "
-            "Technical JSON is hidden so the evidence is easier to review."
-        )
-
-        evidence_items = result.get("evidence", [])
-
-        if not evidence_items:
-            st.info("No evidence was retrieved for this research run.")
-        else:
-            for i, item in enumerate(evidence_items, start=1):
-                confidence = float(item.get("confidence", 0) or 0)
-                credibility = float(item.get("credibility", 0) or 0)
-                corroboration = float(item.get("corroboration", 0) or 0)
-
-                st.markdown(f"### Evidence {i} · {item.get('evidence_id', '—')}")
-                st.write(item.get("claim", "No claim provided."))
-
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Confidence", f"{confidence:.0%}")
-                c2.metric("Credibility", f"{credibility:.0%}")
-                c3.metric("Corroboration", f"{corroboration:.0%}")
-
-                st.caption(
-                    f"Source: {item.get('source_detail', 'Unknown source')} "
-                    f"· Reference: {item.get('source_ref', '—')} "
-                    f"· Type: {item.get('claim_type', '—')}"
-                )
-
-                notes = item.get("analyst_notes")
-                if notes:
-                    st.caption(f"Analyst note: {notes}")
-
-                if i < len(evidence_items):
-                    st.divider()
-
-        with st.expander("View technical evidence JSON"):
-            st.json(evidence_items)
-
-    with tab3:
-        st.subheader("Research Plan")
-        st.caption(
-            "The plan generated before research began."
-        )
-
-        plan_text = result.get("plan", "")
-        if plan_text:
-            st.markdown(plan_text)
-        else:
-            st.info("No research plan is available.")
-
-    with tab4:
-        st.subheader("Quality Control")
-
-        qc_items = result.get("qc", [])
-        real_issues = [x for x in qc_items if x.get("type") != "none"]
-
-        if not real_issues:
-            st.success(
-                "✓ Quality checks passed. No basic research-quality issues were detected."
-            )
-        else:
-            st.warning(
-                f"{len(real_issues)} research-quality finding(s) need human review."
-            )
-
-            for item in real_issues:
-                issue_type = item.get("type", "review")
-                message = item.get("message", "QC finding requires review.")
-
-                if item.get("severity") == "warning" or issue_type == "low_confidence":
-                    st.warning(f"⚠ {message}")
-                else:
-                    st.error(f"• {message}")
-
-        with st.expander("View QC details"):
-            st.json(qc_items)
-
-        with st.expander("Technical run details"):
-            st.write("Run History")
-            st.json(result.get("history", []))
-
-            st.write("API Usage")
-            usage = result.get("usage", {})
-            u1, u2 = st.columns(2)
-            u1.metric("Input tokens", usage.get("input_tokens", 0))
-            u2.metric("Output tokens", usage.get("output_tokens", 0))
-
-    with tab5:
-        st.warning(
-            "This is a human approval gate. "
-            "The system does not automatically approve reports."
-        )
-
-        decision = st.radio(
-            "Decision",
-            [
-                "Approve",
-                "Reject",
-                "Request additional research",
-                "Modify scope",
-            ],
-        )
-
-        reviewer = st.text_input(
-            "Reviewer name"
+    st.markdown("## What do you want to research?")
+    
+    with st.container():
+        question = st.text_area(
+            "Research question",
+            placeholder=(
+                "Example: Compare AI-powered customer "
+                "support software for a mid-market company, "
+                "including pricing, features, positioning, "
+                "opportunities and risks."
+            ),
+            height=140,
         )
 
         if st.button(
-            "Save Approval Decision"
+            "🚀 Start Research",
+            type="primary",
+            use_container_width=True,
         ):
-            result["approval"] = {
-                "status": "completed",
-                "decision": decision,
-                "reviewer": (
-                    reviewer
-                    or "Human reviewer"
-                ),
-                "timestamp": datetime.now(
-                    timezone.utc
-                ).isoformat(),
-            }
+            if not question.strip():
+                st.warning(
+                    "Please enter a research question."
+                )
+            else:
+                try:
+                    with st.spinner(
+                        "🔍 MarketMind is researching... This may take a moment."
+                    ):
+                        result = run_marketmind(
+                            question.strip(),
+                            client,
+                            runtime_model,
+                        )
 
-            path = save_run(result)
+                    st.session_state.last_result = result
 
-            st.success(
-                f"Decision saved: {path.name}"
+                    st.success(
+                        "✓ Research completed! Navigating to results..."
+                    )
+                    
+                    # Navigate to results page
+                    st.session_state.current_page = "results"
+                    
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(
+                        f"Research failed safely: "
+                        f"{type(e).__name__}: {e}"
+                    )
+    
+    st.markdown("---")
+    st.caption(
+        "💡 MarketMind uses a controlled local corpus "
+        "in this compact version. It does not present "
+        "synthetic corpus documents as live web sources."
+    )
+
+# ============================================================
+# PAGE 3 — RESULTS
+# ============================================================
+elif st.session_state.current_page == "results":
+    result = st.session_state.get("last_result")
+
+    if not result:
+        st.warning("No research results available. Start a new research.")
+        if st.button("← Back to Research"):
+            st.session_state.current_page = "research"
+            st.rerun()
+    else:
+        st.title("📊 Research Results")
+        st.caption(f"Run ID: {result['run_id']}")
+        
+        st.markdown("---")
+
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(
+            [
+                "📄 Report",
+                "🔗 Evidence",
+                "📋 Plan",
+                "✓ Quality Control",
+                "✅ Approval",
+            ]
+        )
+
+        with tab1:
+            st.subheader("Research Report")
+            st.markdown(result["report"])
+
+        with tab2:
+            st.subheader("Evidence")
+            st.caption(
+                "Sources and claims used by MarketMind. "
+                "Technical JSON is hidden so the evidence is easier to review."
             )
 
-st.divider()
+            evidence_items = result.get("evidence", [])
 
-st.caption(
-    "MarketMind uses a controlled local corpus "
-    "in this compact version. It does not present "
-    "synthetic corpus documents as live web sources."
-)
+            if not evidence_items:
+                st.info("No evidence was retrieved for this research run.")
+            else:
+                for i, item in enumerate(evidence_items, start=1):
+                    confidence = float(item.get("confidence", 0) or 0)
+                    credibility = float(item.get("credibility", 0) or 0)
+                    corroboration = float(item.get("corroboration", 0) or 0)
+
+                    st.markdown(f"### Evidence {i} · {item.get('evidence_id', '—')}")
+                    st.write(item.get("claim", "No claim provided."))
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Confidence", f"{confidence:.0%}")
+                    c2.metric("Credibility", f"{credibility:.0%}")
+                    c3.metric("Corroboration", f"{corroboration:.0%}")
+
+                    st.caption(
+                        f"Source: {item.get('source_detail', 'Unknown source')} "
+                        f"· Reference: {item.get('source_ref', '—')} "
+                        f"· Type: {item.get('claim_type', '—')}"
+                    )
+
+                    notes = item.get("analyst_notes")
+                    if notes:
+                        st.caption(f"Analyst note: {notes}")
+
+                    if i < len(evidence_items):
+                        st.divider()
+
+            with st.expander("View technical evidence JSON"):
+                st.json(evidence_items)
+
+        with tab3:
+            st.subheader("Research Plan")
+            st.caption(
+                "The plan generated before research began."
+            )
+
+            plan_text = result.get("plan", "")
+            if plan_text:
+                st.markdown(plan_text)
+            else:
+                st.info("No research plan is available.")
+
+        with tab4:
+            st.subheader("Quality Control")
+
+            qc_items = result.get("qc", [])
+            real_issues = [x for x in qc_items if x.get("type") != "none"]
+
+            if not real_issues:
+                st.success(
+                    "✓ Quality checks passed. No basic research-quality issues were detected."
+                )
+            else:
+                st.warning(
+                    f"{len(real_issues)} research-quality finding(s) need human review."
+                )
+
+                for item in real_issues:
+                    issue_type = item.get("type", "review")
+                    message = item.get("message", "QC finding requires review.")
+
+                    if item.get("severity") == "warning" or issue_type == "low_confidence":
+                        st.warning(f"⚠ {message}")
+                    else:
+                        st.error(f"• {message}")
+
+            with st.expander("View QC details"):
+                st.json(qc_items)
+
+            with st.expander("Technical run details"):
+                st.write("Run History")
+                st.json(result.get("history", []))
+
+                st.write("API Usage")
+                usage = result.get("usage", {})
+                u1, u2 = st.columns(2)
+                u1.metric("Input tokens", usage.get("input_tokens", 0))
+                u2.metric("Output tokens", usage.get("output_tokens", 0))
+
+        with tab5:
+            st.warning(
+                "This is a human approval gate. "
+                "The system does not automatically approve reports."
+            )
+
+            decision = st.radio(
+                "Decision",
+                [
+                    "Approve",
+                    "Reject",
+                    "Request additional research",
+                    "Modify scope",
+                ],
+            )
+
+            reviewer = st.text_input(
+                "Reviewer name"
+            )
+
+            if st.button(
+                "Save Approval Decision"
+            ):
+                result["approval"] = {
+                    "status": "completed",
+                    "decision": decision,
+                    "reviewer": (
+                        reviewer
+                        or "Human reviewer"
+                    ),
+                    "timestamp": datetime.now(
+                        timezone.utc
+                    ).isoformat(),
+                }
+
+                path = save_run(result)
+
+                st.success(
+                    f"Decision saved: {path.name}"
+                )

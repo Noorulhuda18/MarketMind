@@ -1,3 +1,5 @@
+#Demo
+https://marketmind-fxehvkk8bcgdsbahwxqle3.streamlit.app/
 # MarketMind AI — Simple Streamlit Version
 
 This is a compact implementation of the MarketMind AI coursework application.

@@ -400,12 +400,6 @@ Rules:
             )
         })
 
-    if not defects:
-        defects.append({
-            "type": "none",
-            "message": "No basic QC defects detected."
-        })
-
     # --------------------------------------------------------
     # 5. SAVE SERIALIZABLE STATE
     # --------------------------------------------------------
